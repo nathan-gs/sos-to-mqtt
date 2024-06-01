@@ -122,7 +122,7 @@ mqtt_publish_ha_discovery() {
   
   topic="homeassistant/sensor/${global_sensor_prefix}_${station}_${phenomenon}/config"
 
-  if [ -n $device_class ];
+  if [ ${#device_class} -gt 1 ];
   then 
     device_class_str="\"device_class\": \"${device_class}\","
   else
@@ -260,7 +260,7 @@ do
   station=`location_to_station $location`
   timeseries=`echo $i | jq -r '.properties.timeseries | to_entries | map(.key)'`
 
-  if [ -z "$STATIONS_LIST" ] || grep -q ",$station," <<< ",$STATIONS_LIST,";
+  if [ -z "$STATIONS_LIST" ] || [[ ",$STATIONS_LIST," = *",$station,"* ]];
   then    
     true
   else
