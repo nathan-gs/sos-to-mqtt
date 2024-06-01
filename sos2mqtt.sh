@@ -1,14 +1,94 @@
 #!/usr/bin/env bash
 
-BASE_URL="https://geo.irceline.be/sos"
+IS_SILENT=false
 TS_DELAY="30 minutes ago"
+USE_MQTT=false
+MQTT_TOPIC_PREFIX="sos2mqtt/"
+MQTT_PUBLISH_HA_DISCOVERY=true
+MQTT_HOST="localhost"
+STATIONS_LIST=""
 
-IS_SILENT=true
-PUBLISH_HA_DISCOVERY=true
-MQTT_TOPIC_PREFIX="irceline/"
+help() {
+  echo "Usage: sos2mqtt.sh [options]"
+  echo "Options:"
+  echo "  --silent"
+  echo "  --base-url <url>"
+  echo "  --ts-delay <delay> (default: 30 minutes ago)"
+  echo "  --mqtt-user <user>"
+  echo "  --mqtt-password <password>"
+  echo "  --mqtt-host <host> (default: localhost)"
+  echo "  --mqtt-topic-prefix <prefix> (default: sos2mqtt/)"
+  echo "  --mqtt-publish-ha <true|false> (default: true)"
+  echo "  --stations-list <station1,station2,...>"
+
+  echo "  if --mqtt-user is set, mqtt will be used"
+
+}
+
+OPTS=$(getopt -o h --long 'help,silent,base-url:,ts-delay:,mqtt-user:,mqtt-password:,mqtt-host:,mqtt-topic-prefix:,mqtt-publish-ha:,stations-list:' -- "$@")
+
+eval set -- "$OPTS"
+
+while :
+do
+  case "$1" in
+    --silent )
+      IS_SILENT=true
+      shift 1
+      ;;
+    --base-url )
+      BASE_URL="$2"
+      shift 2
+      ;;
+    --ts-delay )
+      TS_DELAY="$2"
+      shift 2
+      ;;
+    --mqtt-user )
+      USE_MQTT=true
+      MQTT_USER="$2"
+      shift 2
+      ;;
+    --mqtt-password )
+      MQTT_PASSWORD="$2"
+      shift 2
+      ;;
+    --mqtt-host )
+      MQTT_HOST="$2"
+      shift 2
+      ;;
+    --mqtt-topic-prefix )
+      MQTT_TOPIC_PREFIX="$2"
+      shift 2
+      ;;
+    --mqtt-publish-ha )
+      MQTT_PUBLISH_HA_DISCOVERY="$2"
+      shift 2
+      ;;
+    --stations-list )
+      STATIONS_LIST="$2"
+      shift 2
+      ;;
+    --help)
+      help
+      shift 1
+      ;;
+    --)
+      shift;
+      break
+      ;;
+    *)
+      echo "Unexpected option: $1"
+      ;;
+  esac
+done
 
 
-STATIONS_LIST=":linkeroever:rieme:uccle:moerkerke:idegem:gent:gent_carlierlaan:gent_lange_violettestraat:destelbergen:wondelgem:evergem:sint_kruiswinkel:zelzate:wachtebeke:"
+if [ -z "$BASE_URL" ];
+then
+  echo "Missing --base-url, check $0 --help for more info."
+  exit 1
+fi
 
 log() {
   if [ "$IS_SILENT" = false ];
@@ -20,7 +100,10 @@ log() {
 mqtt_publish() {
   topic=$1
   payload=$2  
-  mosquitto_pub --username "$MQTT_USER" --pw "$MQTT_PASSWORD" --retain -t "$topic" -m "$payload"
+  if [ "$USE_MQTT" = true ];
+  then
+    mosquitto_pub --host $MQTT_HOST --username "$MQTT_USER" --pw "$MQTT_PASSWORD" --retain -t "$topic" -m "$payload"
+  fi
 }
 
 mqtt_publish_ha_discovery() {
@@ -28,6 +111,11 @@ mqtt_publish_ha_discovery() {
   phenomenon=$2
   unit_of_measurement=$3
   device_class=$4
+
+  if [ "$MQTT_PUBLISH_HA_DISCOVERY" = false ];
+  then
+    return
+  fi
 
   global_sensor_prefix=${MQTT_TOPIC_PREFIX%/}
   
@@ -165,7 +253,7 @@ do
   station=`location_to_station $location`
   timeseries=`echo $i | jq -r '.properties.timeseries | to_entries | map(.key)'`
 
-  if [[ ":$STATIONS_LIST:" = *:$station:* ]]
+  if [ -z "$STATIONS_LIST" ] || grep -q ",$station," <<< ",$STATIONS_LIST,";
   then    
     true
   else
@@ -197,14 +285,10 @@ do
     ts_datetime=`date -d @$((ts_timestamp / 1000)) --utc +"%Y-%m-%dT%H:%M:%SZ"`
 
     #echo $ts
-    #log "  $ts_id $phenomenon_normalized $ts_value $unit at $ts_datetime"
+    log "  $ts_id $phenomenon_normalized $ts_value $unit at $ts_datetime"
     mqtt_publish_ha_discovery $station $phenomenon_normalized $unit $device_class
     mqtt_publish_state $station $phenomenon_normalized $ts_value $ts_datetime $latitude $longitude
 
-    
-  #attributes.latitude = ''${latitude}'';
-  #attributes.longitude = ''${longitude}'';
-  #attributes.last_updated = ''{{ ((value_json["${ts_id}"]["values"][0]["timestamp"] | float) / 1000) | timestamp_custom('%Y:%m:%dT%H:%M:%SZ') }}'';
 
   done
 
