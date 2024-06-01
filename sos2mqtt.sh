@@ -9,7 +9,7 @@ MQTT_HOST="localhost"
 STATIONS_LIST=""
 
 help() {
-  echo "Usage: sos2mqtt.sh [options]"
+  echo "Usage: $0 [options]"
   echo "Options:"
   echo "  --silent"
   echo "  --base-url <url>"
@@ -79,6 +79,7 @@ do
       ;;
     *)
       echo "Unexpected option: $1"
+      exit 1
       ;;
   esac
 done
@@ -121,6 +122,13 @@ mqtt_publish_ha_discovery() {
   
   topic="homeassistant/sensor/${global_sensor_prefix}_${station}_${phenomenon}/config"
 
+  if [ -n $device_class ];
+  then 
+    device_class_str="\"device_class\": \"${device_class}\","
+  else
+    device_class_str=""
+  fi
+
   payload=$(cat <<PLEOL
   {
     "device": {
@@ -132,7 +140,7 @@ mqtt_publish_ha_discovery() {
     "state_class": "measurement",
     "json_attributes_topic": "${MQTT_TOPIC_PREFIX}${station}/${phenomenon}",
     "unit_of_measurement": "${unit}",
-    "device_class": "${device_class}",
+    ${device_class_str}
     "value_template": "{{ value_json.${phenomenon} }}"
   }
 PLEOL
@@ -235,7 +243,6 @@ stations_request=`curl \
   -H "Content-Type: application/json" \
   -X GET \
   --silent \
-  --data-urlencode "near=$bbox" \
   "$BASE_URL/api/v1/stations?expanded=true"`
 
 by_station=`echo $stations_request | jq -c '.[] | {properties, geometry}' `
@@ -264,7 +271,6 @@ do
   timespan="PT0H/$(date -d $TS_DELAY --utc +"%Y-%m-%dT%H:00:00Z")"
 
   timeseries_values=`curl -H "Content-Type: application/json" -X POST --silent --json "{\"timeseries\":$timeseries, \"timespan\":\"$timespan\"}" "$BASE_URL/api/v1/timeseries/getData"`
-  #echo $timeseries_values
 
   
   for ts in `echo $i | jq -c '.properties.timeseries | to_entries | .[]'`
@@ -283,8 +289,7 @@ do
     fi
     ts_timestamp=`echo $timeseries_values | jq -r '.["'$ts_id'"]["values"][0].timestamp'`
     ts_datetime=`date -d @$((ts_timestamp / 1000)) --utc +"%Y-%m-%dT%H:%M:%SZ"`
-
-    #echo $ts
+    
     log "  $ts_id $phenomenon_normalized $ts_value $unit at $ts_datetime"
     mqtt_publish_ha_discovery $station $phenomenon_normalized $unit $device_class
     mqtt_publish_state $station $phenomenon_normalized $ts_value $ts_datetime $latitude $longitude
