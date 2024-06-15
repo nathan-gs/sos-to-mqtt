@@ -98,6 +98,10 @@ log() {
   fi
 }
 
+warn() {
+  echo "$@" 1>&2;
+}
+
 mqtt_publish() {
   topic=$1
   payload=$2  
@@ -146,7 +150,13 @@ mqtt_publish_ha_discovery() {
 PLEOL
   )
 
-  mqtt_publish "$topic" "$payload"
+  if jq -e . >/dev/null 2>&1 <<<"$payload"; 
+  then
+    mqtt_publish "$topic" "$payload"
+  else
+    warn "mqtt_publish_ha_discovery: Invalid json for $topic and payload: $payload"
+  fi
+
 }
 
 mqtt_publish_state() {
@@ -168,7 +178,12 @@ mqtt_publish_state() {
 PLEOL
   )
 
-  mqtt_publish "$topic" "$payload"
+  if jq -e . >/dev/null 2>&1 <<<"$payload"; 
+  then
+    mqtt_publish "$topic" "$payload"
+  else
+    warn "mqtt_publish_state: Invalid json for $topic and payload: $payload"
+  fi
 }
 
 normalize_phenomenon() {
